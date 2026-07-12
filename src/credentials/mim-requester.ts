@@ -8,9 +8,16 @@ import {
     IDiscoveryNetworkFactory,
     INetworkConfig,
 } from "../discovery/model";
+import { formatDiscoveryResponse } from "../protocol";
 import { CancellableAsyncSink } from "../util/async";
 import { wakePortsByType } from "../waker/udp";
 import { ICredentialRequester, ICredentials } from "./model";
+
+/**
+ * The TCP port that real consoles advertise as host-request-port in
+ * their discovery responses.
+ */
+const secondScreenRequestPort = 997;
 
 export interface IEmulatorOptions {
     hostId: string;
@@ -67,37 +74,38 @@ export class MimCredentialRequester implements ICredentialRequester {
         this.io?.logInfo(`  ${this.emulatorOptions.hostName}`);
 
         debug("emulating device", this.emulatorOptions, "awaiting WAKE...");
-        return this.emulateUntilWoken(
-            sink,
-            network,
-            device.type,
-            localBindPort,
-        );
+        return this.emulateUntilWoken(sink, network, device);
     }
 
     private async emulateUntilWoken(
         incomingMessages: AsyncIterable<IDiscoveryMessage>,
         network: IDiscoveryNetwork,
-        hostType: string,
-        localBindPort: number,
+        device: IDiscoveredDevice,
     ) {
-        const searchStatus = "HTTP/1.1 620 Server Standby";
-        const searchResponse = {
-            "host-id": this.emulatorOptions.hostId,
-            "host-name": this.emulatorOptions.hostName,
-            "host-request-port": localBindPort,
-            "host-type": hostType,
-        };
+        // NOTE: the response must look exactly like a real device's,
+        // including a plausible system-version — the official apps
+        // silently discard anything less (see #25, #59); we borrow the
+        // system-version of the device we're requesting credentials for
+        const searchResponse = formatDiscoveryResponse({
+            statusLine: "HTTP/1.1 620 Server Standby",
+            version: device.discoveryVersion,
+            data: {
+                "host-id": this.emulatorOptions.hostId,
+                "host-name": this.emulatorOptions.hostName,
+                "host-request-port": secondScreenRequestPort,
+                "host-type": device.type,
+                "system-version": device.systemVersion,
+            },
+        });
 
         for await (const message of incomingMessages) {
             const { sender } = message;
             switch (message.type) {
                 case "SRCH":
                     debug("respond to SRCH request from", sender);
-                    await network.send(
+                    await network.sendBuffer(
                         sender.address,
                         sender.port,
-                        searchStatus,
                         searchResponse,
                     );
                     break;
