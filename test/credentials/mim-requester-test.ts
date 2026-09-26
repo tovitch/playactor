@@ -1,20 +1,18 @@
 import * as chai from "chai";
 import chaiSubset from "chai-subset";
-import { fake } from "sinon";
-import sinonChai from "sinon-chai";
 
 import { MimCredentialRequester } from "../../src/credentials/mim-requester";
 import {
     DeviceStatus,
     DeviceType,
+    DiscoveryMessageType,
     DiscoveryVersions,
+    IDeviceAddress,
     IDiscoveredDevice,
-    IDiscoveryMessage,
 } from "../../src/discovery/model";
 import { MockDiscoveryNetworkFactory } from "../discovery/util";
 
 chai.use(chaiSubset);
-chai.use(sinonChai);
 chai.should();
 
 const device: IDiscoveredDevice = {
@@ -33,17 +31,11 @@ const device: IDiscoveredDevice = {
     type: DeviceType.PS4,
 };
 
-const appSender = {
+const appSender: IDeviceAddress = {
     address: "192.168.1.20",
     family: "IPv4",
     port: 52301,
-    size: 0,
 };
-
-async function flushMessageLoop() {
-    await new Promise(resolve => { setImmediate(resolve); });
-    await new Promise(resolve => { setImmediate(resolve); });
-}
 
 describe("MimCredentialRequester", () => {
     let netFactory: MockDiscoveryNetworkFactory;
@@ -55,20 +47,21 @@ describe("MimCredentialRequester", () => {
     });
 
     it("responds to SRCH exactly like a real device", async () => {
-        const sendBuffer = fake.resolves(undefined);
-        netFactory.network.sendBuffer = sendBuffer;
+        const sent = new Promise<[string, number, Buffer]>(resolve => {
+            netFactory.network.sendBuffer = async (...args) => resolve(args);
+        });
 
-        const promise = requester.requestForDevice(device);
-        promise.catch(() => { /* cancelled below */ });
-
+        requester.requestForDevice(device);
         netFactory.onMessage!({
-            type: "SRCH",
+            type: DiscoveryMessageType.SRCH,
             sender: appSender,
-        } as unknown as IDiscoveryMessage);
-        await flushMessageLoop();
+            version: DiscoveryVersions.PS4,
+            data: {},
+        });
 
-        sendBuffer.should.have.been.calledOnceWith(appSender.address, appSender.port);
-        const response: Buffer = sendBuffer.firstCall.args[2];
+        const [address, port, response] = await sent;
+        address.should.equal(appSender.address);
+        port.should.equal(appSender.port);
         response.toString().should.equal(
             "HTTP/1.1 620 Server Standby\n"
             + "host-id:1234567890AB\n"
@@ -84,10 +77,11 @@ describe("MimCredentialRequester", () => {
         const promise = requester.requestForDevice(device);
 
         netFactory.onMessage!({
-            type: "WAKEUP",
+            type: DiscoveryMessageType.WAKEUP,
             sender: appSender,
+            version: DiscoveryVersions.PS4,
             data: { "user-credential": "shiny" },
-        } as unknown as IDiscoveryMessage);
+        });
 
         const credentials = await promise;
         credentials.should.containSubset({ "user-credential": "shiny" });

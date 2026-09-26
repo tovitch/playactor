@@ -2,22 +2,25 @@ import _debug from "debug";
 import { IInputOutput } from "../cli/io";
 
 import {
+    DeviceType,
     IDiscoveredDevice,
     IDiscoveryMessage,
     IDiscoveryNetwork,
     IDiscoveryNetworkFactory,
     INetworkConfig,
 } from "../discovery/model";
-import { formatDiscoveryResponse } from "../protocol";
+import { formatDiscoveryMessage } from "../protocol";
 import { CancellableAsyncSink } from "../util/async";
 import { wakePortsByType } from "../waker/udp";
 import { ICredentialRequester, ICredentials } from "./model";
 
 /**
- * The TCP port that real consoles advertise as host-request-port in
- * their discovery responses.
+ * The host-request-port that real devices advertise in their discovery
+ * responses, which the official apps expect to see from us as well.
  */
-const secondScreenRequestPort = 997;
+const requestPortsByType: Partial<Record<DeviceType, number>> = {
+    [DeviceType.PS4]: 997,
+};
 
 export interface IEmulatorOptions {
     hostId: string;
@@ -59,6 +62,11 @@ export class MimCredentialRequester implements ICredentialRequester {
             throw new Error(`Unexpected discovery protocol: ${device.discoveryVersion}`);
         }
 
+        const hostRequestPort = requestPortsByType[device.type];
+        if (!hostRequestPort) {
+            throw new Error(`Unexpected device type: ${device.type}`);
+        }
+
         const network = this.networkFactory.createMessages({
             ...this.networkConfig,
             localBindPort,
@@ -74,26 +82,35 @@ export class MimCredentialRequester implements ICredentialRequester {
         this.io?.logInfo(`  ${this.emulatorOptions.hostName}`);
 
         debug("emulating device", this.emulatorOptions, "awaiting WAKE...");
-        return this.emulateUntilWoken(sink, network, device);
+        return this.emulateUntilWoken(
+            sink,
+            network,
+            device,
+            hostRequestPort,
+        );
     }
 
     private async emulateUntilWoken(
         incomingMessages: AsyncIterable<IDiscoveryMessage>,
         network: IDiscoveryNetwork,
         device: IDiscoveredDevice,
+        hostRequestPort: number,
     ) {
-        // NOTE: the response must look exactly like a real device's,
-        // including a plausible system-version — the official apps
-        // silently discard anything less (see #25, #59); we borrow the
-        // system-version of the device we're requesting credentials for
-        const searchResponse = formatDiscoveryResponse({
-            statusLine: "HTTP/1.1 620 Server Standby",
+        // NOTE: formatted here rather than via network.send(), which would
+        // send one response per discovery protocol version when the network
+        // is a composite, advertising the wrong version for the device type
+        const searchResponse = formatDiscoveryMessage({
+            type: "HTTP/1.1 620 Server Standby",
             version: device.discoveryVersion,
             data: {
                 "host-id": this.emulatorOptions.hostId,
                 "host-name": this.emulatorOptions.hostName,
-                "host-request-port": secondScreenRequestPort,
+                "host-request-port": hostRequestPort,
                 "host-type": device.type,
+
+                // the official apps ignore devices without a system-version,
+                // so we borrow the one of the device we're requesting
+                // credentials for
                 "system-version": device.systemVersion,
             },
         });

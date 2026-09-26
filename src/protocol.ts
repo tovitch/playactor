@@ -1,17 +1,12 @@
 import { DiscoveryVersion, outgoingDiscoveryKeys } from "./discovery/model";
 
-function formatOutgoingKeys(data?: Record<string, unknown>) {
-    let formatted = "";
-    if (data) {
-        for (const key of Object.keys(data)) {
-            if (!outgoingDiscoveryKeys.has(key)) continue;
-            formatted += `${key}:${data[key]}\n`;
-        }
-    }
-
-    return formatted;
-}
-
+/**
+ * Formats a discovery message. Requests are identified by their type
+ * (eg: "SRCH"), to which the " * HTTP/1.1" protocol marker is appended;
+ * responses already carry a full status line (eg: "HTTP/1.1 620 Server
+ * Standby") and are sent as-is, like a real device does. The official
+ * apps silently discard responses formatted like requests (see #25, #59).
+ */
 export function formatDiscoveryMessage({
     data,
     type,
@@ -21,24 +16,17 @@ export function formatDiscoveryMessage({
     type: string,
     version: DiscoveryVersion,
 }) {
-    return Buffer.from(`${type} * HTTP/1.1\n${formatOutgoingKeys(data)}device-discovery-protocol-version:${version}\n`);
-}
+    let formatted = "";
+    if (data) {
+        for (const key of Object.keys(data)) {
+            if (!outgoingDiscoveryKeys.has(key)) continue;
+            formatted += `${key}:${data[key]}\n`;
+        }
+    }
 
-/**
- * Formats a response to a discovery request the way a real device
- * does: the first line is the bare status line (eg: "HTTP/1.1 620
- * Server Standby") with no " * HTTP/1.1" suffix. The official apps
- * silently discard responses formatted like requests, so responses
- * must not go through formatDiscoveryMessage.
- */
-export function formatDiscoveryResponse({
-    data,
-    statusLine,
-    version,
-}: {
-    data?: Record<string, unknown>,
-    statusLine: string,
-    version: DiscoveryVersion,
-}) {
-    return Buffer.from(`${statusLine}\n${formatOutgoingKeys(data)}device-discovery-protocol-version:${version}\n`);
+    const firstLine = type.startsWith("HTTP")
+        ? type
+        : `${type} * HTTP/1.1`;
+
+    return Buffer.from(`${firstLine}\n${formatted}device-discovery-protocol-version:${version}\n`);
 }

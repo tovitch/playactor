@@ -1,12 +1,12 @@
 import * as chai from "chai";
 
 import { DiscoveryVersions } from "../src/discovery/model";
-import { formatDiscoveryMessage, formatDiscoveryResponse } from "../src/protocol";
+import { formatDiscoveryMessage } from "../src/protocol";
 
 chai.should();
 
 describe("formatDiscoveryMessage", () => {
-    it("formats requests with the type and protocol marker", () => {
+    it("appends the protocol marker to requests", () => {
         const message = formatDiscoveryMessage({
             type: "SRCH",
             version: DiscoveryVersions.PS4,
@@ -17,28 +17,28 @@ describe("formatDiscoveryMessage", () => {
             + "device-discovery-protocol-version:00020020\n",
         );
     });
-});
 
-describe("formatDiscoveryResponse", () => {
-    it("formats responses with a bare status line, like a real device", () => {
-        const response = formatDiscoveryResponse({
-            statusLine: "HTTP/1.1 620 Server Standby",
+    it("sends response status lines as-is, like a real device", () => {
+        const response = formatDiscoveryMessage({
+            type: "HTTP/1.1 620 Server Standby",
             version: DiscoveryVersions.PS4,
             data: {
                 "host-id": "serenity",
+                "system-version": "13520001",
             },
         });
 
         response.toString().should.equal(
             "HTTP/1.1 620 Server Standby\n"
             + "host-id:serenity\n"
+            + "system-version:13520001\n"
             + "device-discovery-protocol-version:00020020\n",
         );
     });
 
     it("omits keys that are not part of the discovery protocol", () => {
-        const response = formatDiscoveryResponse({
-            statusLine: "HTTP/1.1 200 Ok",
+        const message = formatDiscoveryMessage({
+            type: "SRCH",
             version: DiscoveryVersions.PS4,
             data: {
                 "host-id": "serenity",
@@ -46,8 +46,8 @@ describe("formatDiscoveryResponse", () => {
             },
         });
 
-        response.toString().should.equal(
-            "HTTP/1.1 200 Ok\n"
+        message.toString().should.equal(
+            "SRCH * HTTP/1.1\n"
             + "host-id:serenity\n"
             + "device-discovery-protocol-version:00020020\n",
         );
