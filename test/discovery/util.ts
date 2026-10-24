@@ -1,5 +1,6 @@
 import {
     IDiscoveredDevice,
+    IDiscoveryMessage,
     IDiscoveryNetwork,
     IDiscoveryNetworkFactory,
     INetworkConfig,
@@ -39,7 +40,7 @@ export class MockDiscoveryNetwork implements IDiscoveryNetwork {
 export class MockDiscoveryNetworkFactory implements IDiscoveryNetworkFactory {
     public readonly network = new MockDiscoveryNetwork();
     public pendingDevices: IDiscoveredDevice[] = [];
-    public onMessage?: OnDiscoveryMessageHandler;
+    private onMessage?: OnDiscoveryMessageHandler;
 
     public createDevices(_config: INetworkConfig, onDevice: OnDeviceDiscoveredHandler) {
         const oldPing = this.network.ping;
@@ -55,6 +56,14 @@ export class MockDiscoveryNetworkFactory implements IDiscoveryNetworkFactory {
     public createMessages(_config: INetworkConfig, onMessage: OnDiscoveryMessageHandler) {
         this.onMessage = onMessage;
         return this.network;
+    }
+
+    public receiveMessage(message: IDiscoveryMessage) {
+        if (!this.onMessage) {
+            throw new Error("No messages network has been created yet");
+        }
+
+        this.onMessage(message);
     }
 
     public createRawMessages() {

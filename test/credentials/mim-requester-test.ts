@@ -1,5 +1,5 @@
 import * as chai from "chai";
-import chaiSubset from "chai-subset";
+import chaiAsPromised from "chai-as-promised";
 
 import { MimCredentialRequester } from "../../src/credentials/mim-requester";
 import {
@@ -12,7 +12,7 @@ import {
 } from "../../src/discovery/model";
 import { MockDiscoveryNetworkFactory } from "../discovery/util";
 
-chai.use(chaiSubset);
+chai.use(chaiAsPromised);
 chai.should();
 
 const device: IDiscoveredDevice = {
@@ -52,7 +52,7 @@ describe("MimCredentialRequester", () => {
         });
 
         requester.requestForDevice(device);
-        netFactory.onMessage!({
+        netFactory.receiveMessage({
             type: DiscoveryMessageType.SRCH,
             sender: appSender,
             version: DiscoveryVersions.PS4,
@@ -76,14 +76,15 @@ describe("MimCredentialRequester", () => {
     it("resolves with the credentials received via WAKEUP", async () => {
         const promise = requester.requestForDevice(device);
 
-        netFactory.onMessage!({
+        netFactory.receiveMessage({
             type: DiscoveryMessageType.WAKEUP,
             sender: appSender,
             version: DiscoveryVersions.PS4,
             data: { "user-credential": "shiny" },
         });
 
-        const credentials = await promise;
-        credentials.should.containSubset({ "user-credential": "shiny" });
+        await promise.should.eventually.include({
+            "user-credential": "shiny",
+        });
     });
 });
